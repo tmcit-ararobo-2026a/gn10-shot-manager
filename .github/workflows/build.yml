@@ -25,9 +25,19 @@ jobs:
       image: ros:humble-ros-base
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout main repository
+        uses: actions/checkout@v4
+        with:
+          path: src/main_repo
 
-      - uses: actions/cache@v4
+      - name: Checkout gn10-navigation
+        uses: actions/checkout@v4
+        with:
+          repository: tmcit-ararobo-2026a/gn10-navigation
+          path: src/gn10-navigation
+
+      - name: Cache ccache
+        uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/.ccache
           key: ccache-ros2-${{ runner.os }}-${{ github.sha }}
@@ -48,9 +58,10 @@ jobs:
           ccache --max-size=500M
 
           rosdep update --rosdistro humble
-          rosdep install --from-paths . --ignore-src -y --rosdistro humble
+          rosdep install --from-paths src --ignore-src -y --rosdistro humble
 
           colcon build \
+            --base-paths src \
             --cmake-args \
               -DCMAKE_C_COMPILER_LAUNCHER=ccache \
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
