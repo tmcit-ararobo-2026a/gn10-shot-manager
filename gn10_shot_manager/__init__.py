@@ -1,0 +1,2 @@
+"""gn10_shot_manager package."""
+
