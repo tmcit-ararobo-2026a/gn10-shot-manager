@@ -1,0 +1,56 @@
+name: CI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ros2_build:
+    name: ROS 2 Humble Build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    container:
+      image: ros:humble-ros-base
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-ros2-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            ccache-ros2-${{ runner.os }}-
+
+      - name: Build
+        run: |
+          set -e
+
+          source /opt/ros/humble/setup.bash
+
+          DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y git ccache
+
+          export CCACHE_DIR=${{ github.workspace }}/.ccache
+          export PATH="/usr/lib/ccache:$PATH"
+          mkdir -p $CCACHE_DIR
+          ccache --max-size=500M
+
+          rosdep update --rosdistro humble
+          rosdep install --from-paths . --ignore-src -y --rosdistro humble
+
+          colcon build \
+            --cmake-args \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
