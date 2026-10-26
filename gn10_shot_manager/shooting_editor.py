@@ -5,7 +5,7 @@ import math
 import sys
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import UInt8, Empty
+from std_msgs.msg import UInt8
 from gn10_shot_manager.point_manager import PointManager
 
 
@@ -19,7 +19,6 @@ class ShootingEditorApp:
 
         # Publishers for active testing
         self.target_id_pub = self.node.create_publisher(UInt8, "/robot/target_id", 10)
-        self.trigger_shot_pub = self.node.create_publisher(Empty, "/robot/trigger_shot", 10)
 
         # UI state
         self.selected_idx = 0
@@ -92,8 +91,6 @@ class ShootingEditorApp:
                 self.status_msg = "Reloaded points from YAML file."
             elif ch in [ord('t'), ord('T')]:
                 self.publish_active_target()
-            elif ch in [ord('f'), ord('F')]:
-                self.trigger_shot()
 
     def get_current_point(self):
         if not self.target_ids:
@@ -185,11 +182,6 @@ class ShootingEditorApp:
         msg.data = int(pt["target_id"])
         self.target_id_pub.publish(msg)
         self.status_msg = f"Sent /robot/target_id = {pt['target_id']} ({pt['name']}) to robot."
-
-    def trigger_shot(self):
-        msg = Empty()
-        self.trigger_shot_pub.publish(msg)
-        self.status_msg = "Sent /robot/trigger_shot! Counter should increment."
 
     def prompt_input(self, prompt: str) -> str:
         curses.echo()
@@ -298,7 +290,7 @@ class ShootingEditorApp:
         # 4. Keybind guide
         guide_y = h - 5
         self.stdscr.addstr(guide_y, 2, "Keys: [↑/↓] Select  [←/→] ±0.005m / ±0.01rad  [</>] ±0.025m (Coarse)  [Tab/1-4] Field", curses.color_pair(6))
-        self.stdscr.addstr(guide_y + 1, 2, "      [Enter/e] Direct Edit  [s] Save & Git Commit  [t] Set Active Target  [f] Trigger Shot  [q] Quit", curses.color_pair(6))
+        self.stdscr.addstr(guide_y + 1, 2, "      [Enter/e] Direct Edit  [s] Save & Git Commit  [t] Set Active Target  [q] Quit", curses.color_pair(6))
 
         # 5. Status line
         status_color = curses.color_pair(4) if self.dirty else curses.color_pair(3)

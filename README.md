@@ -33,7 +33,6 @@ ros2 run gn10_shot_manager shooting_editor
 | `s` | **保存 & Gitコミット** (`UpdatePoint` → `SavePoints` → `git commit`) |
 | `r` | YAMLファイルからの再読み込み |
 | `t` | 現在選択中の TargetId を `/robot/target_id` へ配信（目標送信） |
-| `f` | 射出テストトリガ `/robot/trigger_shot` を発行 |
 | `q` / `ESC` | 終了（未保存変更がある場合は確認プロンプト表示） |
 
 ---
@@ -47,7 +46,7 @@ ros2 run gn10_shot_manager trial_recorder
 ros2 launch gn10_shot_manager shot_manager.launch.py
 ```
 
-- **トリガ**: `/robot/feedback/shot_count` の増加、または `/robot/trigger_shot`
+- **トリガ**: `/robot/feedback/shot_count` のインクリメント（原点取り時の0リセットは無視）
 - **保存先**: `~/ros2_ws/data/trials/trials.jsonl`
 - **記録データ**:
   - `shot_id`, `timestamp`, `target` (id, name, x, y, yaw, memo)
@@ -79,8 +78,7 @@ ros2 run gn10_shot_manager trial_viewer --shot 1
 |---|---|---|---|
 | `/target_manager/update_point` | `gn10_navigation/srv/UpdatePoint` | Client | メモリ上ポイント更新 |
 | `/target_manager/save_points` | `std_srvs/srv/Trigger` | Client | ファイル永続化保存 |
-| `/robot/feedback/shot_count` | `std_msgs/msg/UInt32` | Sub/Pub | 射出回数カウンタ |
-| `/robot/trigger_shot` | `std_msgs/msg/Empty` | Sub/Pub | 射出テスト用トリガ |
+| `/robot/feedback/shot_count` | `std_msgs/msg/UInt8` | Sub/Pub | メイン基板の射出回数カウンタ（原点取り0、射出命令でインクリメント） |
 | `/robot/feedback/belt_launcher/*` | `std_msgs/msg/Float32` | Sub | ベルト速度・電圧・電流・目標値 |
 | `/robot/feedback/drive_*` | `std_msgs/msg/Float32` | Sub | 走行バッテリー電圧・電流 |
 | `/cloth/position` | `geometry_msgs/msg/PointStamped` | Sub | 雑巾の3D位置 (RealSense追跡) |

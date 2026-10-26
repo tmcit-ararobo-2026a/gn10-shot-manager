@@ -8,7 +8,7 @@ import os
 import time
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Float32, UInt8, UInt32, Empty
+from std_msgs.msg import Float32, UInt8
 from geometry_msgs.msg import PointStamped
 from nav_msgs.msg import Path
 from gn10_shot_manager.point_manager import PointManager
@@ -26,10 +26,10 @@ class TrialRecorderNode(Node):
         self.declare_parameter("output_dir", os.path.expanduser("~/ros2_ws/data/trials"))
         self.declare_parameter("log_filename", "trials.jsonl")
 
-        self.record_duration = self.get_parameter("record_duration_sec").as_double()
-        self.pre_buffer_duration = self.get_parameter("pre_trigger_buffer_sec").as_double()
-        self.output_dir = self.get_parameter("output_dir").as_string()
-        self.log_filename = self.get_parameter("log_filename").as_string()
+        self.record_duration = float(self.get_parameter("record_duration_sec").value)
+        self.pre_buffer_duration = float(self.get_parameter("pre_trigger_buffer_sec").value)
+        self.output_dir = str(self.get_parameter("output_dir").value)
+        self.log_filename = str(self.get_parameter("log_filename").value)
 
         os.makedirs(self.output_dir, exist_ok=True)
         self.output_path = os.path.join(self.output_dir, self.log_filename)
@@ -65,8 +65,7 @@ class TrialRecorderNode(Node):
         self.cloth_path_points = []
 
         # Subscriptions to robot-port feedback
-        self.create_subscription(UInt32, "/robot/feedback/shot_count", self.on_shot_count, 10)
-        self.create_subscription(Empty, "/robot/trigger_shot", self.on_manual_trigger, 10)
+        self.create_subscription(UInt8, "/robot/feedback/shot_count", self.on_shot_count, 10)
         self.create_subscription(UInt8, "/robot/target_id", self.on_target_id, 10)
 
         self.create_subscription(Float32, "/robot/feedback/drive_battery_voltage", lambda m: self.update_val("battery_voltage", m.data), 10)
@@ -103,23 +102,29 @@ class TrialRecorderNode(Node):
                 for p in msg.poses
             ]
 
-    def on_shot_count(self, msg: UInt32):
-        count = msg.data
+    def on_shot_count(self, msg: UInt8):
+        count = int(msg.data)
         if self.last_shot_count is None:
             self.last_shot_count = count
             self.get_logger().info(f"Initial shot_count synchronized: {count}")
             return
 
-        if count > self.last_shot_count:
-            self.get_logger().info(f"Trigger! Shot count changed: {self.last_shot_count} -> {count}")
+        # 0に変化した際（原点取り等）は無視し、記録トリガは作動させない
+        if count == 0:
+            if self.last_shot_count != 0:
+                self.get_logger().info("Shot count reset to 0 (origin homing). Ignoring trigger.")
+            self.last_shot_count = 0
+            return
+
+        # インクリメント時に射出命令として記録開始
+        # (通常増加、または uint8 255->1 オーバーフロー時)
+        is_increment = (count > self.last_shot_count) or (self.last_shot_count == 255 and count > 0)
+        if is_increment:
+            self.get_logger().info(f"Trigger! Shot count incremented: {self.last_shot_count} -> {count}")
             self.last_shot_count = count
             self.start_recording(shot_id=count)
-
-    def on_manual_trigger(self, msg: Empty):
-        new_id = (self.last_shot_count or 0) + 1
-        self.last_shot_count = new_id
-        self.get_logger().info(f"Manual trigger! Shot id: {new_id}")
-        self.start_recording(shot_id=new_id)
+        else:
+            self.last_shot_count = count
 
     def start_recording(self, shot_id: int):
         self.is_recording = True
