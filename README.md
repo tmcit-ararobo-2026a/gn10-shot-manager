@@ -7,6 +7,9 @@
 ## 概要
 
 - **Shooting Editor (TUI)**: SSH接続端末上でも軽量かつ確実に動作するターミナルGUI。`shooting_points.yaml` の各ターゲット座標（X, Y, Yaw）をミリメートル/センチメートル単位で微調整し、メモを追加、ROS 2サービス (`/target_manager/update_point`, `/target_manager/save_points`) 経由でロボットのメモリおよび設定ファイルへ反映・保存・Git自動コミットを行います。
+
+![editor image](docs/editor.png)
+
 - **Trial Recorder**: ロボットの射出カウンタトピック (`/robot/feedback/shot_count`) を監視し、射出トリガ発火時に同一時間軸でロボットの各種センサ（ベルト速度、電圧、電流、目標値）と RealSense による雑巾追跡位置 (`/cloth/position`) をサンプリング・同期記録（JSON Lines 形式）。
 - **Trial Viewer**: 記録された各試行ログから着弾精度やターゲットごとの統計（平均誤差、標準偏差、ピーク電流等）を表示。
 

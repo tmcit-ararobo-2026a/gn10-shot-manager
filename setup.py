@@ -16,9 +16,9 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='gn10',
-    maintainer_email='gn10@todo.todo',
-    description='TUI-based Shooting Point Editor & Trial Synchronous Recorder for GN10',
+    maintainer='Gento Aiba',
+    maintainer_email='contact0@gn10.org',
+    description='TUI-based Shooting Point Editor & Trial Synchronous Recorder for NHK Kousen Robocon 2026',
     license='MIT',
     tests_require=['pytest'],
     entry_points={

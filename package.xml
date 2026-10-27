@@ -4,7 +4,7 @@
   <name>gn10_shot_manager</name>
   <version>0.1.0</version>
   <description>TUI-based Shooting Point Editor &amp; Trial Synchronous Recorder for GN10</description>
-  <maintainer email="gn10@todo.todo">gn10</maintainer>
+  <maintainer email="contact@gn10.org">Gento Aiba</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>
