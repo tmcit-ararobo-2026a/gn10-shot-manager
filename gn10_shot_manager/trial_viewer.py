@@ -113,8 +113,11 @@ def print_detail(record):
 
 def main():
     parser = argparse.ArgumentParser(description="View GN10 shot trial logs and statistics")
-    default_log = os.path.expanduser("~/ros2_ws/data/trials/trials.jsonl")
-    parser.add_argument("--file", "-f", default=default_log, help="Path to trials.jsonl file")
+    default_log = os.path.expanduser("~/ros2_ws/data/shot-trial-log/trials.jsonl")
+    fallback_log = os.path.expanduser("~/ros2_ws/data/trials/trials.jsonl")
+    chosen_default = default_log if os.path.exists(default_log) or not os.path.exists(fallback_log) else fallback_log
+
+    parser.add_argument("--file", "-f", default=chosen_default, help="Path to trials.jsonl file")
     parser.add_argument("--shot", "-s", type=int, default=None, help="Show detailed samples for a specific shot id")
     parser.add_argument("--last", "-l", action="store_true", help="Show detail for the most recent shot")
     args = parser.parse_args()

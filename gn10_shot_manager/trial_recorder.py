@@ -5,6 +5,7 @@ import datetime
 import json
 import math
 import os
+import subprocess
 import time
 import rclpy
 from rclpy.node import Node
@@ -23,19 +24,25 @@ class TrialRecorderNode(Node):
         # Declare parameters
         self.declare_parameter("record_duration_sec", 3.5)
         self.declare_parameter("pre_trigger_buffer_sec", 0.5)
-        self.declare_parameter("output_dir", os.path.expanduser("~/ros2_ws/data/trials"))
+        self.declare_parameter("output_dir", os.path.expanduser("~/ros2_ws/data/shot-trial-log"))
         self.declare_parameter("log_filename", "trials.jsonl")
+        self.declare_parameter("auto_git_commit", True)
 
         self.record_duration = float(self.get_parameter("record_duration_sec").value)
         self.pre_buffer_duration = float(self.get_parameter("pre_trigger_buffer_sec").value)
         self.output_dir = str(self.get_parameter("output_dir").value)
         self.log_filename = str(self.get_parameter("log_filename").value)
+        self.auto_git_commit = bool(self.get_parameter("auto_git_commit").value)
 
         os.makedirs(self.output_dir, exist_ok=True)
         self.output_path = os.path.join(self.output_dir, self.log_filename)
 
         # Load target points for coordinate reference
         self.pm = PointManager(node=self)
+
+        # Session tracking for summary commit on shutdown
+        self.session_start_time = datetime.datetime.now()
+        self.session_shots = []
 
         # Sensor state
         self.current_target_id = 0
@@ -239,8 +246,57 @@ class TrialRecorderNode(Node):
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
             err_str = f"Error: {error_data['distance']:.3f}m" if error_data else "No landing detected"
             self.get_logger().info(f"Trial saved! Shot #{self.active_shot_id} -> Target {target_pt['name']} | {err_str}")
+
+            # Track in-session record for summary commit on node exit
+            self.session_shots.append({
+                "shot_id": self.active_shot_id,
+                "target_name": target_pt.get("name", f"Target_{self.current_target_id}"),
+                "timestamp": datetime.datetime.now(),
+                "error": error_data,
+            })
         except Exception as e:
             self.get_logger().error(f"Failed to write trial record: {e}")
+
+    def commit_session_summary(self):
+        """Commit accumulated session trial records to shot-trial-log repository on exit."""
+        if not self.auto_git_commit:
+            return
+        git_dir = os.path.join(self.output_dir, ".git")
+        if not os.path.exists(git_dir):
+            return
+
+        try:
+            # Check if there are uncommitted changes in the log file
+            cmd_status = ["git", "status", "--porcelain", self.log_filename]
+            res_status = subprocess.run(cmd_status, cwd=self.output_dir, capture_output=True, text=True)
+            if not res_status.stdout.strip():
+                self.get_logger().info("No uncommitted trials in session.")
+                return
+
+            cmd_add = ["git", "add", self.log_filename]
+            subprocess.run(cmd_add, cwd=self.output_dir, check=True, capture_output=True)
+
+            now = datetime.datetime.now()
+            start_str = self.session_start_time.strftime("%Y-%m-%d %H:%M")
+            end_str = now.strftime("%H:%M")
+            total_shots = len(self.session_shots)
+
+            # Target breakdown
+            target_counts = collections.Counter(s["target_name"] for s in self.session_shots)
+            breakdown_lines = [f"- {name}: {count} shots" for name, count in target_counts.items()]
+            breakdown_str = "\n".join(breakdown_lines)
+
+            header = f"log: trial session summary ({start_str} - {end_str}, {total_shots} shots)"
+            body = f"Recorded {total_shots} shots between {start_str} and {end_str}."
+            if breakdown_str:
+                body += f"\n\nTargets:\n{breakdown_str}"
+
+            full_msg = f"{header}\n\n{body}"
+            cmd_commit = ["git", "commit", "-m", full_msg]
+            subprocess.run(cmd_commit, cwd=self.output_dir, check=True, capture_output=True)
+            self.get_logger().info(f"Git committed session summary to shot-trial-log:\n{header}")
+        except Exception as e:
+            self.get_logger().warn(f"Auto git commit on shutdown skipped: {e}")
 
 
 def main(args=None):
@@ -251,6 +307,7 @@ def main(args=None):
     except KeyboardInterrupt:
         pass
     finally:
+        node.commit_session_summary()
         node.destroy_node()
         rclpy.shutdown()
 

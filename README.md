@@ -10,7 +10,7 @@
 
 ![editor image](docs/editor.png)
 
-- **Trial Recorder**: ロボットの射出カウンタトピック (`/robot/feedback/shot_count`) を監視し、射出トリガ発火時に同一時間軸でロボットの各種センサ（ベルト速度、電圧、電流、目標値）と RealSense による雑巾追跡位置 (`/cloth/position`) をサンプリング・同期記録（JSON Lines 形式）。
+- **Trial Recorder**: ロボットの射出カウンタトピック (`/robot/feedback/shot_count`) を監視し、射出トリガ発火時に同一時間軸でロボットの各種センサ（ベルト速度、電圧、電流、目標値）と RealSense による雑巾追跡位置 (`/cloth/position`) をサンプリング・同期記録（`data/shot-trial-log/trials.jsonl`）。
 - **Trial Viewer**: 記録された各試行ログから着弾精度やターゲットごとの統計（平均誤差、標準偏差、ピーク電流等）を表示。
 
 ---
@@ -50,7 +50,10 @@ ros2 launch gn10_shot_manager shot_manager.launch.py
 ```
 
 - **トリガ**: `/robot/feedback/shot_count` のインクリメント（原点取り時の0リセットは無視）
-- **保存先**: `~/ros2_ws/data/trials/trials.jsonl`
+- **保存先**: `~/ros2_ws/data/shot-trial-log/trials.jsonl`（専用リポジトリ `shot-trial-log` 内）
+- **リポジトリ管理連携**:
+  - `ros2_ws` の `setup.sh` / `update.sh` (`private_2026a.repos`) により、`data/shot-trial-log` は自動でクローン & pull されます。
+  - **セッション要約コミット**: 射出頻度が高くてもコミット履歴の見通しを損なわないよう、毎射出ごとではなくノード終了時にそのセッションの試行数・日時・ターゲット内訳を要約した1つのコミット（例: `log: trial session summary (2026-10-28 20:20 - 21:05, 15 shots)`）を自動生成します。
 - **記録データ**:
   - `shot_id`, `timestamp`, `target` (id, name, x, y, yaw, memo)
   - `summary`: 最大速度、最大電流、平均電圧
