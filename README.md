@@ -6,20 +6,39 @@
 
 ## 概要
 
-- **Shooting Editor (TUI)**: SSH接続端末上でも軽量かつ確実に動作するターミナルGUI。`shooting_points.yaml` の各ターゲット座標（X, Y, Yaw）および射出目標速度（V_tgt）をミリメートル/センチメートル・0.1m/s単位で微調整し、メモを追加、ROS 2サービス (`/target_manager/update_point`, `/target_manager/save_points`) 経由でロボットのメモリおよび設定ファイルへ反映・保存・Git自動コミットを行います。
-
-![editor image](docs/editor.png)
-
+- **Shooting GUI Editor (`shooting_gui`)**: 本番フィールド図（Red/Blueゾーン、固定バケツ・机・旗等のターゲットオブジェクト）上で各ターゲット位置（X, Y, Yaw）と目標射出速度（V_tgt）をクリック・ドラッグ配置および微調整できる2D GUIツール。ROS 2サービス経由でロボットのメモリ反映、YAML保存、Git自動コミットまで完結します。
+- **Shooting Editor (TUI) (`shooting_editor`)**: SSH接続端末上でも軽量かつ確実に動作するターミナルCUIエディタ。
 - **Trial Recorder**: ロボットの射出カウンタトピック (`/robot/feedback/shot_count`) を監視し、射出トリガ発火時に同一時間軸でロボットの各種センサ（ベルト速度、電圧、電流、目標値）と RealSense による雑巾追跡位置 (`/cloth/position`) をサンプリング・同期記録（`data/shot-trial-log/trials.jsonl`）。
 - **Trial Viewer**: 記録された各試行ログから着弾精度やターゲットごとの統計（平均誤差、標準偏差、ピーク電流等）を表示。
 
 ---
 
-## 主な機能とキー操作
+## 主な機能と使い方
 
-### 1. Shooting Editor (`shooting_editor`)
+### 1. Shooting GUI Editor (`shooting_gui`)
 
-ターミナルから起動:
+GUI画面から直感的に本番フィールドの射出目標地点を調整・登録します。
+
+```bash
+ros2 run gn10_shot_manager shooting_gui
+```
+
+- **フィールド図上操作**:
+  - **左クリック / ドラッグ**: 選択中ターゲットの大まかな位置を決定・移動
+  - **右クリックドラッグ**: 射出姿勢（Yaw角）を直感的に回転調整
+  - **相手ゾーン視覚化**: Red Zone (Y < 0) / Blue Zone (Y > 0) とターゲットオブジェクト（固定バケツ①②③、机1・2、旗）が表示され、相手オブジェクト前での位置合わせを容易に確認可能
+- **微調整パネル**:
+  - X, Y (`±5cm`, `±0.005m`), Yaw (`±5°`, `±1°`), Target Velocity (`±0.5m/s`, `±0.1m/s`), Memo の数値直接編集
+- **アクション**:
+  - **💾 Save & Commit**: `/target_manager/update_point`（メモリ更新）→ `/target_manager/save_points`（YAML保存）→ Git自動コミット
+  - **🔄 Reload YAML**: ディスクの `shooting_points.yaml` から再読込
+  - **🎯 Test Target**: 選択中ターゲットIDを `/robot/target_id` へ配信
+
+---
+
+### 2. Shooting Editor (TUI) (`shooting_editor`)
+
+SSH接続端末などのターミナル環境から起動:
 ```bash
 ros2 run gn10_shot_manager shooting_editor
 ```
@@ -40,7 +59,7 @@ ros2 run gn10_shot_manager shooting_editor
 
 ---
 
-### 2. Trial Recorder (`trial_recorder`)
+### 3. Trial Recorder (`trial_recorder`)
 
 バックグラウンドまたは別ターミナルで起動:
 ```bash
