@@ -103,11 +103,12 @@ def print_detail(record):
     samples = record.get("samples", [])
     print(f"Samples Recorded: {len(samples)} (at ~50Hz)")
     if samples:
-        print(f"{'t [s]':>6} {'V_act [m/s]':>12} {'V_tgt [m/s]':>12} {'Current [A]':>12} {'Volt [V]':>10}")
-        print("-" * 56)
+        print(f"{'t [s]':>6} {'V_act [m/s]':>12} {'V_cmd [m/s]':>12} {'V_tgt [m/s]':>12} {'Current [A]':>12} {'Volt [V]':>10}")
+        print("-" * 69)
         # Show first, peak, and last few
         for s in samples[::5]:  # every 100ms
-            print(f"{s['t']:>6.2f} {s['v_act']:>12.2f} {s['v_tgt']:>12.2f} {s['curr']:>12.2f} {s['volt']:>10.2f}")
+            v_cmd_val = s.get('v_cmd', 0.0)
+            print(f"{s['t']:>6.2f} {s['v_act']:>12.2f} {v_cmd_val:>12.2f} {s['v_tgt']:>12.2f} {s['curr']:>12.2f} {s['volt']:>10.2f}")
     print("=" * 60)
 
 

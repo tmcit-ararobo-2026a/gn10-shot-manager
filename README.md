@@ -85,7 +85,7 @@ ros2 run gn10_shot_manager trial_viewer --shot 1
 | `/target_manager/update_point` | `gn10_navigation/srv/UpdatePoint` | Client | メモリ上ポイント更新 |
 | `/target_manager/save_points` | `std_srvs/srv/Trigger` | Client | ファイル永続化保存 |
 | `/robot/feedback/shot_count` | `std_msgs/msg/UInt8` | Sub/Pub | メイン基板の射出回数カウンタ（原点取り0、射出命令でインクリメント） |
-| `/robot/feedback/belt_launcher/*` | `std_msgs/msg/Float32` | Sub | ベルト速度・電圧・電流・目標値 |
+| `/robot/feedback/belt_launcher/*` | `std_msgs/msg/Float32` | Sub | 実ベルト速度 (velocity)、連続指令値 (command)、リリース目標値 (target)、電圧・電流 |
 | `/robot/feedback/drive_*` | `std_msgs/msg/Float32` | Sub | 走行バッテリー電圧・電流 |
 | `/cloth/position` | `geometry_msgs/msg/PointStamped` | Sub | 雑巾の3D位置 (RealSense追跡) |
 | `/cloth/measured_path` | `nav_msgs/msg/Path` | Sub | 雑巾の飛行軌跡パス |
