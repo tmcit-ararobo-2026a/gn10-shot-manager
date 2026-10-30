@@ -22,9 +22,9 @@ class ShootingEditorApp:
 
         # UI state
         self.selected_idx = 0
-        self.selected_field = 0  # 0: X, 1: Y, 2: Yaw, 3: Memo
-        self.fields = ["X (m)", "Y (m)", "Yaw (rad)", "Memo"]
-        self.step_sizes = [0.005, 0.005, 0.01, None]
+        self.selected_field = 0  # 0: X, 1: Y, 2: Yaw, 3: V_tgt, 4: Memo
+        self.fields = ["X (m)", "Y (m)", "Yaw (rad)", "V_tgt (m/s)", "Memo"]
+        self.step_sizes = [0.005, 0.005, 0.01, 0.1, None]
         self.status_msg = "Ready. Use arrows to navigate, +/- to adjust, 's' to save."
         self.dirty = False
 
@@ -78,8 +78,8 @@ class ShootingEditorApp:
             elif ch in [ord('<'), ord(',')]:
                 self.adjust_value(delta_factor=-5.0)  # Coarse
             elif ch in [9, ord('\t')]:  # Tab
-                self.selected_field = (self.selected_field + 1) % 4
-            elif ch in [ord('1'), ord('2'), ord('3'), ord('4')]:
+                self.selected_field = (self.selected_field + 1) % 5
+            elif ch in [ord('1'), ord('2'), ord('3'), ord('4'), ord('5')]:
                 self.selected_field = ch - ord('1')
             elif ch in [ord('e'), ord('E'), 10, curses.KEY_ENTER]:  # Enter or e to edit
                 self.edit_current_field()
@@ -121,6 +121,11 @@ class ShootingEditorApp:
             self.dirty = True
             deg = math.degrees(pt["yaw"])
             self.status_msg = f"Target {pt['target_id']} Yaw adjusted to {pt['yaw']:.4f} rad ({deg:.1f}°)"
+        elif self.selected_field == 3:  # V_tgt
+            new_v = round(pt.get("target_velocity", 0.0) + self.step_sizes[3] * delta_factor, 3)
+            pt["target_velocity"] = max(0.0, new_v)
+            self.dirty = True
+            self.status_msg = f"Target {pt['target_id']} V_tgt adjusted to {pt['target_velocity']:.3f} m/s"
 
     def edit_current_field(self):
         pt = self.get_current_point()
@@ -128,9 +133,16 @@ class ShootingEditorApp:
             return
 
         field_name = self.fields[self.selected_field]
-        current_val = pt["memo"] if self.selected_field == 3 else str(
-            pt["x"] if self.selected_field == 0 else (pt["y"] if self.selected_field == 1 else pt["yaw"])
-        )
+        if self.selected_field == 4:
+            current_val = pt["memo"]
+        elif self.selected_field == 3:
+            current_val = str(pt.get("target_velocity", 0.0))
+        elif self.selected_field == 2:
+            current_val = str(pt["yaw"])
+        elif self.selected_field == 1:
+            current_val = str(pt["y"])
+        else:
+            current_val = str(pt["x"])
 
         prompt = f"Enter new {field_name} (Current: {current_val}): "
         new_val = self.prompt_input(prompt)
@@ -145,6 +157,8 @@ class ShootingEditorApp:
             elif self.selected_field == 2:
                 pt["yaw"] = round(float(new_val), 4)
             elif self.selected_field == 3:
+                pt["target_velocity"] = max(0.0, round(float(new_val), 4))
+            elif self.selected_field == 4:
                 pt["memo"] = str(new_val).strip()
             self.dirty = True
             self.status_msg = f"Updated {field_name} for Target {pt['target_id']}."
@@ -168,7 +182,7 @@ class ShootingEditorApp:
 
         # Ask for optional commit comment or auto-generate
         curr_pt = self.get_current_point()
-        default_commit = f"tune(target_{curr_pt['target_id']}): x={curr_pt['x']:.3f}, y={curr_pt['y']:.3f}, yaw={curr_pt['yaw']:.3f} [{curr_pt['memo']}]"
+        default_commit = f"tune(target_{curr_pt['target_id']}): x={curr_pt['x']:.3f}, y={curr_pt['y']:.3f}, yaw={curr_pt['yaw']:.3f}, v={curr_pt.get('target_velocity', 0.0):.2f} [{curr_pt['memo']}]"
         ok_git, msg_git = self.pm.git_commit(default_commit)
 
         self.dirty = False
@@ -235,10 +249,9 @@ class ShootingEditorApp:
         self.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)
 
         # 2. Table of points
-        col_w = [4, 15, 10, 10, 12, max(20, w - 55)]
-        headers = ["ID", "Name", "X [m]", "Y [m]", "Yaw [rad]", "Memo / Notes"]
+        headers = ["ID", "Name", "X [m]", "Y [m]", "Yaw [rad]", "V_tgt [m/s]", "Memo / Notes"]
         table_top = 2
-        header_line = f" {headers[0]:<4} {headers[1]:<15} {headers[2]:>10} {headers[3]:>10} {headers[4]:>12}  {headers[5]}"
+        header_line = f" {headers[0]:<4} {headers[1]:<14} {headers[2]:>9} {headers[3]:>9} {headers[4]:>12} {headers[5]:>11}  {headers[6]}"
         self.stdscr.addstr(table_top, 0, header_line[:w - 1], curses.A_UNDERLINE | curses.A_BOLD)
 
         for i, tid in enumerate(self.target_ids):
@@ -250,10 +263,11 @@ class ShootingEditorApp:
             x = pt.get("x", 0.0)
             y = pt.get("y", 0.0)
             yaw = pt.get("yaw", 0.0)
+            v_tgt = pt.get("target_velocity", 0.0)
             memo = pt.get("memo", "")
             deg = math.degrees(yaw)
 
-            line = f" [{tid}] {name:<14} {x:>10.4f} {y:>10.4f} {yaw:>7.4f} ({deg:>4.0f}°) {memo}"
+            line = f" [{tid}] {name:<13} {x:>9.3f} {y:>9.3f} {yaw:>6.3f} ({deg:>4.0f}°) {v_tgt:>8.2f}m/s  {memo}"
             if i == self.selected_idx:
                 self.stdscr.attron(curses.color_pair(2) | curses.A_BOLD)
                 self.stdscr.addstr(row_y, 0, line.ljust(w - 1)[:w - 1])
@@ -276,6 +290,8 @@ class ShootingEditorApp:
                 elif fi == 2:
                     val_str = f"{curr_pt['yaw']:.4f}rad ({math.degrees(curr_pt['yaw']):.1f}°)"
                 elif fi == 3:
+                    val_str = f"{curr_pt.get('target_velocity', 0.0):.2f}m/s"
+                elif fi == 4:
                     val_str = f"'{curr_pt['memo']}'"
 
                 item_str = f" [{fi + 1}] {fname}: {val_str} "
@@ -289,8 +305,8 @@ class ShootingEditorApp:
 
         # 4. Keybind guide
         guide_y = h - 5
-        self.stdscr.addstr(guide_y, 2, "Keys: [↑/↓] Select  [←/→] ±0.005m / ±0.01rad  [</>] ±0.025m (Coarse)  [Tab/1-4] Field", curses.color_pair(6))
-        self.stdscr.addstr(guide_y + 1, 2, "      [Enter/e] Direct Edit  [s] Save & Git Commit  [t] Set Active Target  [q] Quit", curses.color_pair(6))
+        self.stdscr.addstr(guide_y, 2, "Keys: [↑/↓] Select  [←/→] ±Step  [</>] Coarse  [Tab/1-5] Field  [Enter/e] Direct Edit", curses.color_pair(6))
+        self.stdscr.addstr(guide_y + 1, 2, "      [s] Save & Git Commit  [t] Set Active Target  [q] Quit", curses.color_pair(6))
 
         # 5. Status line
         status_color = curses.color_pair(4) if self.dirty else curses.color_pair(3)

@@ -46,6 +46,7 @@ class PointManager:
                     "x": float(item.get("x", 0.0)),
                     "y": float(item.get("y", 0.0)),
                     "yaw": float(item.get("yaw", 0.0)),
+                    "target_velocity": float(item.get("target_velocity", 0.0)),
                     "memo": str(item.get("memo", "")),
                 }
             return True
@@ -66,6 +67,7 @@ class PointManager:
                     "x": round(float(p["x"]), 4),
                     "y": round(float(p["y"]), 4),
                     "yaw": round(float(p["yaw"]), 4),
+                    "target_velocity": round(float(p.get("target_velocity", 0.0)), 4),
                     "memo": p["memo"],
                 })
             doc = {"shooting_points": items}
@@ -95,6 +97,8 @@ class PointManager:
         req.x = float(p["x"])
         req.y = float(p["y"])
         req.yaw = float(p["yaw"])
+        if hasattr(req, "target_velocity"):
+            req.target_velocity = float(p.get("target_velocity", 0.0))
         req.memo = str(p["memo"])
 
         future = client.call_async(req)
