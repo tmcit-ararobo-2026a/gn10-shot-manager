@@ -56,6 +56,7 @@ class TrialRecorderNode(Node):
             "battery_voltage": 0.0,
             "drive_current": 0.0,
             "launcher_velocity": 0.0,
+            "launcher_command": 0.0,
             "launcher_target": 0.0,
             "launcher_voltage": 0.0,
             "launcher_current": 0.0,
@@ -78,6 +79,7 @@ class TrialRecorderNode(Node):
         self.create_subscription(Float32, "/robot/feedback/drive_battery_voltage", lambda m: self.update_val("battery_voltage", m.data), 10)
         self.create_subscription(Float32, "/robot/feedback/drive_current", lambda m: self.update_val("drive_current", m.data), 10)
         self.create_subscription(Float32, "/robot/feedback/belt_launcher/velocity", lambda m: self.update_val("launcher_velocity", m.data), 10)
+        self.create_subscription(Float32, "/robot/feedback/belt_launcher/command", lambda m: self.update_val("launcher_command", m.data), 10)
         self.create_subscription(Float32, "/robot/feedback/belt_launcher/target", lambda m: self.update_val("launcher_target", m.data), 10)
         self.create_subscription(Float32, "/robot/feedback/belt_launcher/voltage", lambda m: self.update_val("launcher_voltage", m.data), 10)
         self.create_subscription(Float32, "/robot/feedback/belt_launcher/current", lambda m: self.update_val("launcher_current", m.data), 10)
@@ -156,6 +158,7 @@ class TrialRecorderNode(Node):
             "battery_voltage": self.latest_data["battery_voltage"],
             "drive_current": self.latest_data["drive_current"],
             "launcher_velocity": self.latest_data["launcher_velocity"],
+            "launcher_command": self.latest_data["launcher_command"],
             "launcher_target": self.latest_data["launcher_target"],
             "launcher_voltage": self.latest_data["launcher_voltage"],
             "launcher_current": self.latest_data["launcher_current"],
@@ -229,6 +232,7 @@ class TrialRecorderNode(Node):
                 {
                     "t": s["rel_time"],
                     "v_act": round(s["launcher_velocity"], 2),
+                    "v_cmd": round(s.get("launcher_command", 0.0), 2),
                     "v_tgt": round(s["launcher_target"], 2),
                     "curr": round(s["launcher_current"], 2),
                     "volt": round(s["launcher_voltage"], 2),
