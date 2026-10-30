@@ -6,7 +6,7 @@
 
 ## 概要
 
-- **Shooting Editor (TUI)**: SSH接続端末上でも軽量かつ確実に動作するターミナルGUI。`shooting_points.yaml` の各ターゲット座標（X, Y, Yaw）をミリメートル/センチメートル単位で微調整し、メモを追加、ROS 2サービス (`/target_manager/update_point`, `/target_manager/save_points`) 経由でロボットのメモリおよび設定ファイルへ反映・保存・Git自動コミットを行います。
+- **Shooting Editor (TUI)**: SSH接続端末上でも軽量かつ確実に動作するターミナルGUI。`shooting_points.yaml` の各ターゲット座標（X, Y, Yaw）および射出目標速度（V_tgt）をミリメートル/センチメートル・0.1m/s単位で微調整し、メモを追加、ROS 2サービス (`/target_manager/update_point`, `/target_manager/save_points`) 経由でロボットのメモリおよび設定ファイルへ反映・保存・Git自動コミットを行います。
 
 ![editor image](docs/editor.png)
 
@@ -31,7 +31,7 @@ ros2 run gn10_shot_manager shooting_editor
 | `←` / `→` (`h` / `l`) | 選択中フィールドの微小調整 (`±0.005m`, `±0.01rad`) |
 | `+` / `-` | 選択中フィールドの微小加算 / 減算 |
 | `>` / `<` | 選択中フィールドの粗調整 (`±0.025m`) |
-| `Tab` / `1`〜`4` | 調整フィールドの切替 (`1: X`, `2: Y`, `3: Yaw`, `4: Memo`) |
+| `Tab` / `1`〜`5` | 調整フィールドの切替 (`1: X`, `2: Y`, `3: Yaw`, `4: V_tgt`, `5: Memo`) |
 | `Enter` / `e` | 直接数値・テキスト入力編集 |
 | `s` | **保存 & Gitコミット** (`UpdatePoint` → `SavePoints` → `git commit`) |
 | `r` | YAMLファイルからの再読み込み |
@@ -55,7 +55,7 @@ ros2 launch gn10_shot_manager shot_manager.launch.py
   - `ros2_ws` の `setup.sh` / `update.sh` (`private_2026a.repos`) により、`data/shot-trial-log` は自動でクローン & pull されます。
   - **セッション要約コミット**: 射出頻度が高くてもコミット履歴の見通しを損なわないよう、毎射出ごとではなくノード終了時にそのセッションの試行数・日時・ターゲット内訳を要約した1つのコミット（例: `log: trial session summary (2026-10-28 20:20 - 21:05, 15 shots)`）を自動生成します。
 - **記録データ**:
-  - `shot_id`, `timestamp`, `target` (id, name, x, y, yaw, memo)
+  - `shot_id`, `timestamp`, `target` (id, name, x, y, yaw, target_velocity, memo)
   - `summary`: 最大速度、最大電流、平均電圧
   - `landing_position`: 雑巾着弾座標
   - `error`: 着弾誤差（dx, dy, distance）
