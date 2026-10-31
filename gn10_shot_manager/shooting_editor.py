@@ -86,9 +86,14 @@ class ShootingEditorApp:
             elif ch in [ord('s'), ord('S')]:
                 self.save_and_commit()
             elif ch in [ord('r'), ord('R')]:
-                self.pm.load_yaml()
-                self.dirty = False
-                self.status_msg = "Reloaded points from YAML file."
+                if self.pm.load_yaml(fetch_remote_first=True):
+                    self.dirty = False
+                    if self.pm.source_origin == "remote":
+                        self.status_msg = f"Reloaded points from remote: {self.pm.remote_file_path}"
+                    else:
+                        self.status_msg = "Reloaded points from local YAML file."
+                else:
+                    self.status_msg = "Failed to reload points."
             elif ch in [ord('t'), ord('T')]:
                 self.publish_active_target()
 
@@ -239,7 +244,12 @@ class ShootingEditorApp:
         h, w = self.stdscr.getmaxyx()
 
         # 1. Header
-        header_text = f" GN10 SHOOTING POINT TUNER & EDITOR {'[MODIFIED *]' if self.dirty else ''}"
+        source_label = (
+            f"[Remote: {self.pm.remote_file_path or 'target_manager'}]"
+            if self.pm.source_origin == "remote"
+            else f"[Local: {os.path.basename(self.pm.yaml_path)}]"
+        )
+        header_text = f" GN10 SHOOTING POINT TUNER & EDITOR {source_label} {'[MODIFIED *]' if self.dirty else ''}"
         self.stdscr.attron(curses.color_pair(1) | curses.A_BOLD)
         self.stdscr.addstr(0, 0, header_text.ljust(w)[:w - 1])
         self.stdscr.attroff(curses.color_pair(1) | curses.A_BOLD)

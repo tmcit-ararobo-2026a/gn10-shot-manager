@@ -110,6 +110,7 @@ ros2 run gn10_shot_manager trial_viewer --shot 1
 
 | 名前 | 型 | 種別 | 説明 |
 |---|---|---|---|
+| `/target_manager/get_points` | `gn10_navigation/srv/GetPoints` | Client | リモート（接続先ロボット）の現在ポイント・YAMLの取得 |
 | `/target_manager/update_point` | `gn10_navigation/srv/UpdatePoint` | Client | メモリ上ポイント更新 |
 | `/target_manager/save_points` | `std_srvs/srv/Trigger` | Client | ファイル永続化保存 |
 | `/robot/feedback/shot_count` | `std_msgs/msg/UInt8` | Sub/Pub | メイン基板の射出回数カウンタ（原点取り0、射出命令でインクリメント） |

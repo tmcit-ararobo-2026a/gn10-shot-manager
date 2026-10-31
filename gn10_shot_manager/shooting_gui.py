@@ -393,11 +393,8 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
 
         self.target_id_pub = self.node.create_publisher(UInt8, "/robot/target_id", 10)
 
-        filename = os.path.basename(self.pm.yaml_path)
-        self.setWindowTitle(f"GN10 Shooting Point Field Editor - [{filename}]")
-        self.resize(1120, 720)
-
         self.setup_ui()
+        self.update_window_title_and_status()
         self.refresh_table_and_canvas()
 
         # ROS 2 periodic spin timer
@@ -406,6 +403,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         self.ros_timer.start(25)  # 40Hz
 
     def setup_ui(self):
+        self.resize(1120, 720)
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QtWidgets.QHBoxLayout(main_widget)
@@ -731,15 +729,33 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         else:
             self.statusBar().showMessage(f"⚠️ {message}", 5000)
 
+    def update_window_title_and_status(self):
+        if self.pm.source_origin == "remote":
+            remote_name = self.pm.remote_file_path or "target_manager_node"
+            title = f"GN10 Shooting Point Field Editor - [Remote: {remote_name}]"
+            msg = f"Connected to remote target_manager: shooting points loaded from robot ({remote_name})."
+        else:
+            filename = os.path.basename(self.pm.yaml_path)
+            title = f"GN10 Shooting Point Field Editor - [Local: {filename}]"
+            msg = f"Loaded from local file: {filename} (Remote node offline)."
+        self.setWindowTitle(title)
+        self.statusBar().showMessage(msg, 6000)
+
     def reload_yaml(self):
-        if self.pm.load_yaml():
+        if self.pm.load_yaml(fetch_remote_first=True):
             self.dirty = False
             self.dirty_targets.clear()
             self.refresh_table_and_canvas()
-            filename = os.path.basename(self.pm.yaml_path)
-            self.statusBar().showMessage(f"Reloaded {filename} successfully.")
+            self.update_window_title_and_status()
+            if self.pm.source_origin == "remote":
+                self.statusBar().showMessage(
+                    f"Reloaded from remote target_manager: {self.pm.remote_file_path}", 6000
+                )
+            else:
+                filename = os.path.basename(self.pm.yaml_path)
+                self.statusBar().showMessage(f"Reloaded from local file: {filename}", 6000)
         else:
-            self.statusBar().showMessage("Failed to reload YAML.")
+            self.statusBar().showMessage("Failed to reload YAML.", 5000)
 
     def publish_test_target(self):
         tid = self.get_selected_target_id()
