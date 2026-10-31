@@ -170,12 +170,8 @@ class ShootingEditorApp:
         self.status_msg = "Saving points to memory & disk..."
         self.draw()
 
-        # Update all points to ROS2 node memory
-        success_all = True
-        for tid in self.target_ids:
-            ok, msg = self.pm.sync_to_ros2(tid)
-            if not ok:
-                success_all = False
+        # Update points to ROS2 node memory if online
+        sync_ok, sync_msg = self.pm.sync_points_to_ros2(self.target_ids)
 
         # Save to disk
         ok_save, msg_save = self.pm.save_via_ros2()

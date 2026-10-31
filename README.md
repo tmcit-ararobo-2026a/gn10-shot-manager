@@ -6,10 +6,19 @@
 
 ## 概要
 
-- **Shooting GUI Editor (`shooting_gui`)**: 本番フィールド図（Red/Blueゾーン、固定バケツ・机・旗等のターゲットオブジェクト）上で各ターゲット位置（X, Y, Yaw）と目標射出速度（V_tgt）をクリック・ドラッグ配置および微調整できる2D GUIツール。ROS 2サービス経由でロボットのメモリ反映、YAML保存、Git自動コミットまで完結します。
+- **Shooting GUI Editor (`shooting_gui`)**: 本番フィールド図（Red/Blueゾーン、固定バケツ・机・旗等のターゲットオブジェクト）上で各ターゲット位置（X, Y, Yaw）と目標射出速度（V_tgt）をクリック・ドラッグ配置および微調整できる2D GUIツール。専用データリポジトリ（`data/shooting-points`）のバージョン管理と連携し、非同期・軽量保存でGUIをブロックすることなくメモリ反映・YAML保存・Git自動コミットまで完結します。
 - **Shooting Editor (TUI) (`shooting_editor`)**: SSH接続端末上でも軽量かつ確実に動作するターミナルCUIエディタ。
 - **Trial Recorder**: ロボットの射出カウンタトピック (`/robot/feedback/shot_count`) を監視し、射出トリガ発火時に同一時間軸でロボットの各種センサ（ベルト速度、電圧、電流、目標値）と RealSense による雑巾追跡位置 (`/cloth/position`) をサンプリング・同期記録（`data/shot-trial-log/trials.jsonl`）。
 - **Trial Viewer**: 記録された各試行ログから着弾精度やターゲットごとの統計（平均誤差、標準偏差、ピーク電流等）を表示。
+
+---
+
+## データリポジトリ構成 (`data/shooting-points`)
+
+位置調整データ（`shooting_points.yaml`）はコードリポジトリへの混入を防ぎ履歴管理を独立させるため、`data/shot-trial-log` と同様に別リポジトリ（`data/shooting-points`）でバージョン管理されます。
+- **保存先**: `~/ros2_ws/data/shooting-points/shooting_points.yaml` (シンボリックリンク `shooting_point.yaml` 経由でもアクセス可能)
+- **更新連携**: `ros2_ws` の `setup.sh` / `update.sh` (`private_2026a.repos`) で自動管理されます。
+- **フォールバック**: もし `data/shooting-points` が存在しない場合は、従来通り `src/gn10-navigation/config/shooting_points.yaml` または share ディレクトリを自動フォールバック探索します。
 
 ---
 
