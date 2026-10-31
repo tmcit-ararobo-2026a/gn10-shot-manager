@@ -2,41 +2,154 @@
 
 import os
 import subprocess
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 import yaml
 import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
 try:
-    from gn10_navigation.srv import UpdatePoint
+    from gn10_navigation.srv import UpdatePoint, GetPoints
 except ImportError:
     UpdatePoint = None
+    GetPoints = None
+
+
+def find_default_yaml_path() -> str:
+    """Find the best shooting points YAML file path."""
+    # 1. Environment variable
+    env_path = os.environ.get("GN10_SHOOTING_POINTS_PATH")
+    if env_path and os.path.exists(env_path):
+        return os.path.abspath(env_path)
+
+    # 2. Dedicated data/shooting-points repository
+    candidates = [
+        os.path.expanduser("~/ros2_ws/data/shooting-points/shooting_points.yaml"),
+        os.path.expanduser("~/ros2_ws/data/shooting-points/shooting_point.yaml"),
+        os.path.expanduser("~/ros2_ws/data/shooting-point-config/shooting_points.yaml"),
+        os.path.abspath("data/shooting-points/shooting_points.yaml"),
+        os.path.abspath("data/shooting-points/shooting_point.yaml"),
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+
+    # 3. Source fallback
+    src_fallback = os.path.expanduser(
+        "~/ros2_ws/src/gn10-navigation/config/shooting_points.yaml"
+    )
+    if os.path.exists(src_fallback):
+        return src_fallback
+
+    # 4. If nothing exists yet, default to data/shooting-points
+    return os.path.expanduser("~/ros2_ws/data/shooting-points/shooting_points.yaml")
+
+
+def find_git_repo_root(file_path: str) -> Optional[str]:
+    """Find the top-level git repository directory containing the given file path."""
+    curr = os.path.abspath(file_path)
+    if os.path.isfile(curr):
+        curr = os.path.dirname(curr)
+    while curr and curr != "/":
+        if os.path.isdir(os.path.join(curr, ".git")):
+            return curr
+        parent = os.path.dirname(curr)
+        if parent == curr:
+            break
+        curr = parent
+    return None
 
 
 class PointManager:
     """Manages target shooting points via YAML and ROS 2 services."""
 
-    def __init__(self, yaml_path: str = None, node: Node = None):
+    def __init__(self, yaml_path: Optional[str] = None, node: Optional[Node] = None):
         if yaml_path is None:
-            # Default location in source tree
-            ws_dir = os.path.expanduser("/home/gn10/ros2_ws")
-            self.yaml_path = os.path.join(
-                ws_dir, "src/gn10-navigation/config/shooting_points.yaml"
-            )
+            self.yaml_path = find_default_yaml_path()
         else:
-            self.yaml_path = yaml_path
+            self.yaml_path = os.path.abspath(yaml_path)
 
         self.node = node
-        self.points = {}  # target_id (int) -> dict
-        self.load_yaml()
+        self.points: Dict[int, dict] = {}  # target_id (int) -> dict
+        self.source_origin: str = "local"  # "remote" or "local"
+        self.remote_file_path: Optional[str] = None
 
-    def load_yaml(self) -> bool:
-        """Load shooting points from YAML file."""
-        if not os.path.exists(self.yaml_path):
-            return False
+        # Cached ROS 2 service clients
+        self._get_client = None
+        self._update_client = None
+        self._save_client = None
+
+        if self.node is not None:
+            self._init_clients()
+
+        # Prioritize remote (connected robot/target_manager_node) file loading
+        self.load_yaml(fetch_remote_first=True)
+
+    def set_node(self, node: Node):
+        """Set or update the ROS 2 node."""
+        self.node = node
+        self._init_clients()
+        # Fetch remote on node attach if not already from remote
+        if self.source_origin != "remote":
+            self.load_yaml(fetch_remote_first=True)
+
+    def _init_clients(self):
+        if self.node is not None:
+            if GetPoints is not None and self._get_client is None:
+                self._get_client = self.node.create_client(
+                    GetPoints, "/target_manager/get_points"
+                )
+            if UpdatePoint is not None and self._update_client is None:
+                self._update_client = self.node.create_client(
+                    UpdatePoint, "/target_manager/update_point"
+                )
+            if self._save_client is None:
+                self._save_client = self.node.create_client(
+                    Trigger, "/target_manager/save_points"
+                )
+
+    def fetch_from_remote(self, timeout_sec: float = 0.3) -> Tuple[bool, str]:
+        """Fetch the shooting points file/data from the remote target_manager node."""
+        if self.node is None or GetPoints is None:
+            return False, "ROS 2 node or GetPoints service not available"
+
+        if self._get_client is None:
+            self._init_clients()
+
+        if self._get_client is None:
+            return False, "GetPoints client could not be created"
+
+        if not self._get_client.wait_for_service(timeout_sec=timeout_sec):
+            return False, "Remote service /target_manager/get_points not ready"
+
         try:
-            with open(self.yaml_path, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
+            req = GetPoints.Request()
+            future = self._get_client.call_async(req)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=1.0)
+            if future.done() and future.result() is not None:
+                res = future.result()
+                if res.success and res.yaml_content:
+                    if self.load_from_yaml_string(res.yaml_content):
+                        self.source_origin = "remote"
+                        self.remote_file_path = res.file_path
+                        # Also sync local cache file
+                        self.save_yaml_direct()
+                        msg = f"Fetched from remote: {res.file_path}"
+                        if self.node:
+                            self.node.get_logger().info(msg)
+                        return True, msg
+                return False, f"Remote fetch failed: {res.message}"
+            return False, "Remote fetch call timed out"
+        except Exception as e:
+            return False, f"Remote fetch error: {e}"
+
+    def load_from_yaml_string(self, yaml_content: str) -> bool:
+        """Parse YAML content string into self.points."""
+        try:
+            data = yaml.safe_load(yaml_content)
+            if not isinstance(data, dict):
+                return False
             self.points.clear()
             for item in data.get("shooting_points", []):
                 tid = int(item.get("target_id", 0))
@@ -52,11 +165,40 @@ class PointManager:
             return True
         except Exception as e:
             if self.node:
-                self.node.get_logger().error(f"Failed to load yaml: {e}")
+                self.node.get_logger().error(f"Failed to parse remote YAML: {e}")
+            return False
+
+    def load_yaml(self, fetch_remote_first: bool = True) -> bool:
+        """Load shooting points. Tries remote connected node first, then falls back to local file."""
+        if fetch_remote_first and self.node is not None:
+            ok, msg = self.fetch_from_remote(timeout_sec=0.3)
+            if ok:
+                return True
+
+        # Fallback to local file
+        return self.load_yaml_local()
+
+    def load_yaml_local(self) -> bool:
+        """Load shooting points from local YAML file."""
+        if not os.path.exists(self.yaml_path):
+            if self.node:
+                self.node.get_logger().warn(f"Local YAML path does not exist: {self.yaml_path}")
+            return False
+        try:
+            with open(self.yaml_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            ok = self.load_from_yaml_string(content)
+            if ok:
+                self.source_origin = "local"
+                self.remote_file_path = None
+            return ok
+        except Exception as e:
+            if self.node:
+                self.node.get_logger().error(f"Failed to load yaml from {self.yaml_path}: {e}")
             return False
 
     def save_yaml_direct(self) -> bool:
-        """Directly write in-memory points back to YAML."""
+        """Directly write in-memory points back to local YAML file."""
         try:
             items = []
             for tid in sorted(self.points.keys()):
@@ -71,21 +213,32 @@ class PointManager:
                     "memo": p["memo"],
                 })
             doc = {"shooting_points": items}
+
+            parent_dir = os.path.dirname(self.yaml_path)
+            if parent_dir and not os.path.exists(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+
             with open(self.yaml_path, "w", encoding="utf-8") as f:
                 yaml.dump(doc, f, sort_keys=False, allow_unicode=True)
             return True
         except Exception as e:
             if self.node:
-                self.node.get_logger().error(f"Failed to save yaml: {e}")
+                self.node.get_logger().error(f"Failed to save yaml to {self.yaml_path}: {e}")
             return False
 
-    def sync_to_ros2(self, target_id: int) -> tuple[bool, str]:
-        """Call /target_manager/update_point service for target_id."""
+    def is_service_ready(self, timeout_sec: float = 0.05) -> bool:
+        """Check quickly if /target_manager/update_point service is available."""
         if self.node is None or UpdatePoint is None:
-            return False, "ROS 2 node or UpdatePoint srv unavailable"
+            return False
+        if self._update_client is None:
+            self._init_clients()
+        if self._update_client is None:
+            return False
+        return self._update_client.wait_for_service(timeout_sec=timeout_sec)
 
-        client = self.node.create_client(UpdatePoint, "/target_manager/update_point")
-        if not client.wait_for_service(timeout_sec=0.5):
+    def sync_to_ros2(self, target_id: int) -> Tuple[bool, str]:
+        """Call /target_manager/update_point service for a single target_id."""
+        if not self.is_service_ready(timeout_sec=0.05):
             return False, "Service /target_manager/update_point not ready"
 
         p = self.points.get(target_id)
@@ -101,52 +254,85 @@ class PointManager:
             req.target_velocity = float(p.get("target_velocity", 0.0))
         req.memo = str(p["memo"])
 
-        future = client.call_async(req)
-        rclpy.spin_until_future_complete(self.node, future, timeout_sec=2.0)
-        if future.done() and future.result() is not None:
-            res = future.result()
-            return res.success, res.message
-        return False, "Service call timed out"
-
-    def save_via_ros2(self) -> tuple[bool, str]:
-        """Call /target_manager/save_points service to flush in-memory points to disk."""
-        if self.node is None:
-            # Fallback to direct file save
-            success = self.save_yaml_direct()
-            return success, "Saved directly to file (ROS2 offline)"
-
-        client = self.node.create_client(Trigger, "/target_manager/save_points")
-        if not client.wait_for_service(timeout_sec=0.5):
-            # Fallback to direct file save
-            success = self.save_yaml_direct()
-            return success, "Saved directly to file (Service not ready)"
-
-        req = Trigger.Request()
-        future = client.call_async(req)
-        rclpy.spin_until_future_complete(self.node, future, timeout_sec=2.0)
-        if future.done() and future.result() is not None:
-            res = future.result()
-            return res.success, res.message
-        # Fallback
-        self.save_yaml_direct()
-        return True, "Saved directly to file (Service timed out)"
-
-    def git_commit(self, message: str) -> tuple[bool, str]:
-        """Automatically create a git commit for shooting_points.yaml."""
         try:
-            repo_dir = os.path.dirname(os.path.dirname(self.yaml_path))
-            cmd_add = ["git", "add", self.yaml_path]
-            subprocess.run(cmd_add, cwd=repo_dir, check=True, capture_output=True)
+            future = self._update_client.call_async(req)
+            rclpy.spin_until_future_complete(self.node, future, timeout_sec=0.5)
+            if future.done() and future.result() is not None:
+                res = future.result()
+                return res.success, res.message
+            return False, "Service call timed out"
+        except Exception as e:
+            return False, f"Service error: {e}"
 
-            # Check if there are changes to commit
-            status_cmd = ["git", "status", "--porcelain", self.yaml_path]
-            res_status = subprocess.run(status_cmd, cwd=repo_dir, check=True, capture_output=True, text=True)
+    def sync_points_to_ros2(self, target_ids: Optional[List[int]] = None) -> Tuple[bool, str]:
+        """Sync a batch of points to ROS 2 quickly."""
+        if not self.is_service_ready(timeout_sec=0.05):
+            return False, "ROS 2 target_manager service offline"
+
+        if target_ids is None:
+            target_ids = list(self.points.keys())
+
+        failed_count = 0
+        for tid in target_ids:
+            ok, _ = self.sync_to_ros2(tid)
+            if not ok:
+                failed_count += 1
+
+        if failed_count == 0:
+            return True, f"Synced {len(target_ids)} points to ROS 2"
+        return False, f"Failed syncing {failed_count}/{len(target_ids)} points"
+
+    def save_via_ros2(self) -> Tuple[bool, str]:
+        """Call /target_manager/save_points service or fallback to direct file save."""
+        # Always write local YAML as well
+        self.save_yaml_direct()
+
+        if self._save_client is None:
+            self._init_clients()
+
+        if self.node is not None and self._save_client is not None:
+            if self._save_client.wait_for_service(timeout_sec=0.05):
+                try:
+                    req = Trigger.Request()
+                    future = self._save_client.call_async(req)
+                    rclpy.spin_until_future_complete(self.node, future, timeout_sec=1.0)
+                    if future.done() and future.result() is not None:
+                        res = future.result()
+                        return res.success, res.message
+                except Exception as e:
+                    if self.node:
+                        self.node.get_logger().warn(f"Save service call failed: {e}")
+
+        msg = f"Saved locally to {os.path.basename(self.yaml_path)}"
+        return True, msg
+
+    def git_commit(self, message: str) -> Tuple[bool, str]:
+        """Automatically create a git commit for shooting_points.yaml in its repository."""
+        repo_dir = find_git_repo_root(self.yaml_path)
+        if not repo_dir:
+            return False, f"Not a git repository: {self.yaml_path}"
+
+        try:
+            filename = os.path.basename(self.yaml_path)
+            subprocess.run(["git", "add", filename], cwd=repo_dir, check=True, capture_output=True)
+
+            res_status = subprocess.run(
+                ["git", "status", "--porcelain", filename],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             if not res_status.stdout.strip():
                 return True, "No changes to commit"
 
-            cmd_commit = ["git", "commit", "-m", message]
-            res_commit = subprocess.run(cmd_commit, cwd=repo_dir, check=True, capture_output=True, text=True)
+            res_commit = subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             return True, f"Git committed: {message}"
         except Exception as e:
             return False, f"Git commit failed: {e}"
-

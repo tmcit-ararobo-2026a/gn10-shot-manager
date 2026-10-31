@@ -14,6 +14,38 @@ from std_msgs.msg import UInt8
 from gn10_shot_manager.point_manager import PointManager
 
 
+class SaveWorker(QtCore.QThread):
+    """Background worker for saving points and committing to Git without freezing UI."""
+
+    finished = QtCore.pyqtSignal(bool, str)
+
+    def __init__(self, pm: PointManager, target_ids: List[int], commit_msg: str):
+        super().__init__()
+        self.pm = pm
+        self.target_ids = target_ids
+        self.commit_msg = commit_msg
+
+    def run(self):
+        try:
+            # 1. Quick check for ROS 2 service without blocking UI
+            sync_info = "ROS2 offline"
+            if self.pm.is_service_ready(timeout_sec=0.03):
+                ok_sync, msg_sync = self.pm.sync_points_to_ros2(self.target_ids)
+                sync_info = "ROS2 synced" if ok_sync else f"ROS2 sync: {msg_sync}"
+
+            # 2. Save YAML
+            ok_save, msg_save = self.pm.save_via_ros2()
+
+            # 3. Git commit
+            ok_git, msg_git = self.pm.git_commit(self.commit_msg)
+
+            status_msg = f"{msg_save} | {msg_git} [{sync_info}]"
+            self.finished.emit(ok_save and ok_git, status_msg)
+        except Exception as e:
+            self.finished.emit(False, f"Save failed: {e}")
+
+
+
 class FieldCanvas(QtWidgets.QWidget):
     """Interactive 2D field canvas for viewing and placing shooting points."""
 
@@ -355,13 +387,14 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         self.node = node
         self.pm = pm
         self.dirty = False
+        self.dirty_targets = set()
+        self.is_saving = False
+        self.save_worker = None
 
         self.target_id_pub = self.node.create_publisher(UInt8, "/robot/target_id", 10)
 
-        self.setWindowTitle("GN10 Shooting Point Field Editor")
-        self.resize(1120, 720)
-
         self.setup_ui()
+        self.update_window_title_and_status()
         self.refresh_table_and_canvas()
 
         # ROS 2 periodic spin timer
@@ -370,6 +403,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         self.ros_timer.start(25)  # 40Hz
 
     def setup_ui(self):
+        self.resize(1120, 720)
         main_widget = QtWidgets.QWidget()
         self.setCentralWidget(main_widget)
         main_layout = QtWidgets.QHBoxLayout(main_widget)
@@ -581,6 +615,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
             self.pm.points[tid]["x"] = x
             self.pm.points[tid]["y"] = y
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.refresh_table_and_canvas()
             self.statusBar().showMessage(f"Target {tid} moved to ({x:.3f}, {y:.3f}) [Unsaved]")
 
@@ -588,6 +623,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         if tid in self.pm.points:
             self.pm.points[tid]["yaw"] = yaw
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.refresh_table_and_canvas()
             deg = math.degrees(yaw)
             self.statusBar().showMessage(f"Target {tid} yaw set to {deg:.1f}° [Unsaved]")
@@ -597,6 +633,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         if tid is not None and tid in self.pm.points:
             self.pm.points[tid]["x"] = round(val, 4)
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.canvas.update()
             self.update_table_cell(tid, 2, f"{val:.3f}")
 
@@ -605,6 +642,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         if tid is not None and tid in self.pm.points:
             self.pm.points[tid]["y"] = round(val, 4)
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.canvas.update()
             self.update_table_cell(tid, 3, f"{val:.3f}")
 
@@ -614,6 +652,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
             yaw = round(math.radians(deg_val), 4)
             self.pm.points[tid]["yaw"] = yaw
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.canvas.update()
             self.update_table_cell(tid, 4, f"{deg_val:.1f}")
 
@@ -622,6 +661,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         if tid is not None and tid in self.pm.points:
             self.pm.points[tid]["target_velocity"] = round(val, 3)
             self.dirty = True
+            self.dirty_targets.add(tid)
             self.canvas.update()
             self.update_table_cell(tid, 5, f"{val:.2f}")
 
@@ -630,6 +670,7 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
         if tid is not None and tid in self.pm.points:
             self.pm.points[tid]["memo"] = text.strip()
             self.dirty = True
+            self.dirty_targets.add(tid)
 
     def adjust_delta(self, param: str, delta: float):
         if param == "x":
@@ -653,36 +694,68 @@ class ShootingGuiApp(QtWidgets.QMainWindow):
                 break
 
     def save_and_commit(self):
-        self.statusBar().showMessage("Saving to ROS 2 & disk...")
+        if self.is_saving:
+            return
 
-        # 1. Update in-memory points via ROS2 service
-        success_all = True
-        for tid in self.pm.points.keys():
-            ok, _ = self.pm.sync_to_ros2(tid)
-            if not ok:
-                success_all = False
+        self.is_saving = True
+        self.btn_save.setEnabled(False)
+        self.btn_save.setText("💾 Saving...")
+        self.statusBar().showMessage("Saving shooting points and committing to Git...")
 
-        # 2. Save YAML
-        ok_save, msg_save = self.pm.save_via_ros2()
+        # Sync dirty targets (or all if none explicitly recorded)
+        target_ids = list(self.dirty_targets) if self.dirty_targets else list(self.pm.points.keys())
 
-        # 3. Git commit
-        tid = self.get_selected_target_id() or 0
+        tid = self.get_selected_target_id() or (target_ids[0] if target_ids else 0)
         p = self.pm.points.get(tid, {})
-        default_msg = f"tune(gui_target_{tid}): x={p.get('x',0.0):.3f}, y={p.get('y',0.0):.3f}, yaw={p.get('yaw',0.0):.3f}, v={p.get('target_velocity',0.0):.2f}"
-        ok_git, msg_git = self.pm.git_commit(default_msg)
+        default_msg = (
+            f"tune(gui_target_{tid}): x={p.get('x',0.0):.3f}, "
+            f"y={p.get('y',0.0):.3f}, yaw={p.get('yaw',0.0):.3f}, "
+            f"v={p.get('target_velocity',0.0):.2f}"
+        )
 
-        self.dirty = False
-        status_txt = f"{msg_save} | {msg_git}"
-        self.statusBar().showMessage(status_txt)
-        QtWidgets.QMessageBox.information(self, "Save & Commit", f"Sync: {'OK' if success_all else 'Partial'}\n{msg_save}\n{msg_git}")
+        self.save_worker = SaveWorker(self.pm, target_ids, default_msg)
+        self.save_worker.finished.connect(self.on_save_finished)
+        self.save_worker.start()
+
+    def on_save_finished(self, success: bool, message: str):
+        self.is_saving = False
+        self.btn_save.setEnabled(True)
+        self.btn_save.setText("💾 Save & Commit")
+
+        if success:
+            self.dirty = False
+            self.dirty_targets.clear()
+            self.statusBar().showMessage(f"✅ {message}", 5000)
+        else:
+            self.statusBar().showMessage(f"⚠️ {message}", 5000)
+
+    def update_window_title_and_status(self):
+        if self.pm.source_origin == "remote":
+            remote_name = self.pm.remote_file_path or "target_manager_node"
+            title = f"GN10 Shooting Point Field Editor - [Remote: {remote_name}]"
+            msg = f"Connected to remote target_manager: shooting points loaded from robot ({remote_name})."
+        else:
+            filename = os.path.basename(self.pm.yaml_path)
+            title = f"GN10 Shooting Point Field Editor - [Local: {filename}]"
+            msg = f"Loaded from local file: {filename} (Remote node offline)."
+        self.setWindowTitle(title)
+        self.statusBar().showMessage(msg, 6000)
 
     def reload_yaml(self):
-        if self.pm.load_yaml():
+        if self.pm.load_yaml(fetch_remote_first=True):
             self.dirty = False
+            self.dirty_targets.clear()
             self.refresh_table_and_canvas()
-            self.statusBar().showMessage("Reloaded shooting_points.yaml successfully.")
+            self.update_window_title_and_status()
+            if self.pm.source_origin == "remote":
+                self.statusBar().showMessage(
+                    f"Reloaded from remote target_manager: {self.pm.remote_file_path}", 6000
+                )
+            else:
+                filename = os.path.basename(self.pm.yaml_path)
+                self.statusBar().showMessage(f"Reloaded from local file: {filename}", 6000)
         else:
-            self.statusBar().showMessage("Failed to reload YAML.")
+            self.statusBar().showMessage("Failed to reload YAML.", 5000)
 
     def publish_test_target(self):
         tid = self.get_selected_target_id()
