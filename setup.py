@@ -25,6 +25,7 @@ setup(
         'console_scripts': [
             'shooting_editor = gn10_shot_manager.shooting_editor:main',
             'shooting_gui = gn10_shot_manager.shooting_gui:main',
+            'trajectory_visualizer = gn10_shot_manager.trajectory_visualizer:main',
             'trial_recorder = gn10_shot_manager.trial_recorder:main',
             'trial_viewer = gn10_shot_manager.trial_viewer:main',
         ],
