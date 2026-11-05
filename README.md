@@ -82,16 +82,33 @@ ros2 launch gn10_shot_manager shot_manager.launch.py
 - **リポジトリ管理連携**:
   - `ros2_ws` の `setup.sh` / `update.sh` (`private_2026a.repos`) により、`data/shot-trial-log` は自動でクローン & pull されます。
   - **セッション要約コミット**: 射出頻度が高くてもコミット履歴の見通しを損なわないよう、毎射出ごとではなくノード終了時にそのセッションの試行数・日時・ターゲット内訳を要約した1つのコミット（例: `log: trial session summary (2026-10-28 20:20 - 21:05, 15 shots)`）を自動生成します。
-- **記録データ**:
-  - `shot_id`, `timestamp`, `target` (id, name, x, y, yaw, target_velocity, memo)
-  - `summary`: 最大速度、最大電流、平均電圧
-  - `landing_position`: 雑巾着弾座標
-  - `error`: 着弾誤差（dx, dy, distance）
+- **記錄データ**:
+  - `shot_id`, `timestamp`, `coordinate_frame` (`base_link`)
+  - `robot_pose`: TF (`map -> base_link`) から取得した射出時のロボット位置・姿勢 (`x, y, z, yaw, valid`)。自動移動時以外（手動操縦時）も記録。
+  - `estimated_target`: `map` 上の `base_link` 位置・姿勢と目標リリース速度 (`/robot/feedback/belt_launcher/target`) から自動推定した狙いターゲット (`target_id, name, reason`)
+  - `cloth_size` (`large` / `small`), `result` (`success` / `failure`), `target_confirmed` (`true` / `false`): 射出完了ごとにオペレータへ確認ダイアログ（またはCLIプロンプト）を表示して記録
+  - `summary`: 目標リリース速度 (`release_target_velocity`)、最大速度、最大電流、平均電圧（参考値）
+  - `landing_position` (`base_link` 座標系) / `landing_position_map` (`map` 座標系)
   - `samples`: 50Hz (20ms刻み) で同期された時系列データ
 
 ---
 
-### 3. Trial Viewer (`trial_viewer`)
+### 4. Trajectory Visualizer (`trajectory_visualizer`)
+
+```bash
+ros2 run gn10_shot_manager trajectory_visualizer
+```
+
+- **`base_link` 基準での軌道解析**:
+  - `/cloth/position` の飛行軌道を `base_link` 座標系（前方 $X$, 左右 $Y$, 高さ $Z$, 水平距離 $L = \sqrt{X^2 + Y^2}$）で可視化・解析します。
+- **リリース速度ごとの軌道比較**:
+  - 射出機構は速度フィードバック制御であり電源電圧には依存しないため、電圧による除外を行わず（電圧・電流は参考表示のみ）、リリース速度（`v_tgt` / `v_rel`）ごとに軌道の変化・平均曲線・分散を比較します。
+- **`moving_bucket_launcher_node` 用パラメータ算出・YAML出力**:
+  - 人が選別した軌道（`Rolled` 等）から最小二乗法で弾道モデルパラメータ（`launcher_offset_x`, `launcher_offset_z`, `launch_angle_deg`, `velocity_scale`, `velocity_offset` 等）をフィッティングし、`config/moving_bucket_launcher_params.yaml` 形式でプレビュー・ファイル保存できます。
+
+---
+
+### 5. Trial Viewer (`trial_viewer`)
 
 ```bash
 # 全体サマリー & ターゲット別着弾精度統計

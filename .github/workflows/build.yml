@@ -44,13 +44,18 @@ jobs:
           restore-keys: |
             ccache-ros2-${{ runner.os }}-
 
+      - name: Checkout external dependencies
+        run: |
+          mkdir -p /tmp/external_ws/src
+          git clone --depth 1 https://github.com/tmcit-ararobo-2026a/LiDAR-Perception-System.git /tmp/external_ws/src/LiDAR-Perception-System
+
       - name: Build
         run: |
           set -e
 
           source /opt/ros/humble/setup.bash
 
-          DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y git ccache
+          DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y git ccache nlohmann-json3-dev
 
           export CCACHE_DIR=${{ github.workspace }}/.ccache
           export PATH="/usr/lib/ccache:$PATH"
@@ -58,10 +63,10 @@ jobs:
           ccache --max-size=500M
 
           rosdep update --rosdistro humble
-          rosdep install --from-paths src --ignore-src -y --rosdistro humble
+          rosdep install --from-paths . /tmp/external_ws/src --ignore-src -y --rosdistro humble
 
           colcon build \
-            --base-paths src \
+            --base-paths /tmp/external_ws/src . \
             --cmake-args \
               -DCMAKE_C_COMPILER_LAUNCHER=ccache \
               -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
